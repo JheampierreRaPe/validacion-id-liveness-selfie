@@ -1,0 +1,15 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# Visión por computadora / biometría
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+scipy==1.13.1
+deepface==0.0.93
+tensorflow-cpu==2.16.1
+tf-keras==2.16.0
+mediapipe==0.10.14
+retina-face==0.0.17

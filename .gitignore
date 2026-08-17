@@ -1,0 +1,22 @@
+# Entornos y secretos
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+venv/
+.venv/
+
+# DeepFace (pesos de modelos, no deben ir al repo)
+.deepface/
+*.h5
+
+# Docker
+*.log
+
+# SO / editores
+.DS_Store
+.vscode/
+.idea/
