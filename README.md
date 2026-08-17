@@ -125,29 +125,3 @@ curl -X POST http://localhost:8000/api/v1/document/validate \
   -F "file=@documento.jpg"
 ```
 
-## Integración futura con Flutter
-
-Flujo sugerido en la app:
-1. Cámara para capturar el documento → `POST /document/validate`.
-2. Cámara frontal grabando ~2-3s (o ráfaga de fotos) pidiendo al usuario parpadear → convertir frames a base64 → `POST /liveness/verify` (o incluirlo directo en `/verify-full`).
-3. Selfie final nítida.
-4. Enviar todo junto a `POST /identity/verify-full`.
-5. Tu backend bancario recibe `overall_result` y decide si aprueba la apertura de cuenta o la marca para revisión manual.
-
-En Flutter, esto se puede hacer con el paquete `dio` (multipart requests) y `camera` / `image_picker` para capturar documento y selfie.
-
-## Consideraciones para producción bancaria
-
-Este microservicio es una base sólida, pero antes de producción real en un banco conviene reforzar:
-
-- **Liveness**: el parpadeo es liveness activo básico. Para cumplir estándares antifraude (ISO/IEC 30107-3, certificación iBeta) se recomienda sumar detección de textura/reflejos, o integrar un SDK certificado de liveness.
-- **OCR / MRZ**: agregar lectura del documento (Tesseract, o motor MRZ) para validar datos contra el rostro y detectar documentos falsos/alterados.
-- **Persistencia y auditoría**: hoy el servicio es *stateless* (no guarda imágenes ni resultados). Para KYC regulado normalmente se requiere guardar evidencia cifrada con retención definida y trazabilidad.
-- **Autenticación**: el API Key actual es simple; en producción usar mTLS entre microservicios o JWT firmado por tu backend bancario, nunca exponer este servicio directo a internet.
-- **Cifrado en tránsito**: servir detrás de TLS (reverse proxy con HTTPS, ej. Traefik/Nginx).
-- **Rate limiting / anti-abuso** en el gateway.
-- **Cumplimiento normativo local** (en Perú: SBS, protección de datos personales - Ley N.º 29733) para el tratamiento de datos biométricos.
-
-## Próximo paso
-
-Cuando quieras, seguimos con la integración: backend intermedio (Node/Python) que reciba las llamadas desde Flutter, use este microservicio para el KYC, y solo si `overall_result = true` proceda a crear la cuenta bancaria.
