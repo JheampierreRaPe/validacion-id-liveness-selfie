@@ -7,6 +7,7 @@ services:
     environment:
       - API_KEY=${API_KEY:-changeme-super-secret-key}
       - FACE_MATCH_THRESHOLD=${FACE_MATCH_THRESHOLD:-0.68}
+      - BLUR_LAPLACIAN_THRESHOLD=${BLUR_LAPLACIAN_THRESHOLD:-80.0}
     volumes:
       # Cachea los pesos de los modelos entre reinicios/rebuilds del contenedor
       - deepface_models:/app/.deepface

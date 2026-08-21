@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.core.security import verify_api_key
-from app.schemas.models import DocumentValidationResponse
+from app.schemas.models import DocumentOCRResponse, DocumentValidationResponse
 from app.services.document_service import document_service
 from app.services.image_utils import decode_upload_bytes
+
 
 router = APIRouter(prefix="/api/v1/document", tags=["Documento de Identidad"])
 
@@ -19,3 +20,4 @@ async def validate_document(file: UploadFile = File(...)):
     image = decode_upload_bytes(raw)
     result = document_service.validate(image)
     return DocumentValidationResponse(**result)
+

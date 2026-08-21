@@ -19,7 +19,12 @@ class Settings(BaseSettings):
     # Calidad de imagen de documento
     MIN_DOCUMENT_WIDTH: int = 600
     MIN_DOCUMENT_HEIGHT: int = 400
-    BLUR_LAPLACIAN_THRESHOLD: float = 60.0
+    BLUR_LAPLACIAN_THRESHOLD: float = 0.55
+
+
+
+    # Selección de mejor frame (selfie extraída del liveness) y consistencia de identidad
+    IDENTITY_CONSISTENCY_THRESHOLD: float = 0.68  # misma escala que FACE_MATCH_THRESHOLD
 
     class Config:
         env_file = ".env"

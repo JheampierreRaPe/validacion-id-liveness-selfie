@@ -10,6 +10,13 @@ class DocumentValidationResponse(BaseModel):
     checks: dict
 
 
+class DocumentOCRResponse(BaseModel):
+    raw_text: str
+    avg_confidence: float
+    low_confidence: bool
+    parsed_fields: dict
+
+
 # ---------------------- Liveness ----------------------
 class LivenessRequest(BaseModel):
     frames_base64: List[str] = Field(
@@ -38,6 +45,7 @@ class IdentityVerifyResponse(BaseModel):
 class FullVerificationResponse(BaseModel):
     document_validation: DocumentValidationResponse
     liveness: LivenessResponse
+    identity_consistency: dict
     face_match: IdentityVerifyResponse
     overall_result: bool
     overall_reason: str
