@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demo KYC Facial</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --primary: #2563eb;
+    --primary-dark: #1d4ed8;
+    --green-bg: #dcfce7;
+    --green-text: #166534;
+    --red-bg: #fee2e2;
+    --red-text: #991b1b;
+    --amber-bg: #fef3c7;
+    --amber-text: #92400e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+  }
+  header h1 { font-size: 20px; margin-bottom: 10px; }
+  .config {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    font-size: 13px;
+  }
+  .config label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .config input {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+    width: 220px;
+  }
+  main {
+    max-width: 860px;
+    margin: 24px auto;
+    padding: 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .card h2 {
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .num {
+    background: var(--primary);
+    color: #fff;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  button {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 9px 16px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: var(--primary-dark); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary { background: #475569; }
+  button.secondary:hover:not(:disabled) { background: #334155; }
+  input[type="file"] { font-size: 13px; margin-bottom: 12px; display: block; }
+  #video {
+    width: 100%;
+    max-width: 480px;
+    border-radius: 12px;
+    background: #000;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    display: block;
+    margin-bottom: 12px;
+  }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .status { font-size: 13px; color: var(--muted); min-height: 18px; margin-bottom: 8px; }
+  .banner {
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .banner.ok { background: var(--green-bg); color: var(--green-text); }
+  .banner.bad { background: var(--red-bg); color: var(--red-text); }
+  .banner.info { background: var(--amber-bg); color: var(--amber-text); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .sub {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 13px;
+  }
+  .sub h3 { font-size: 13px; margin-bottom: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .kv { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; }
+  .kv span:first-child { color: var(--muted); }
+  .chip {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .chip.ok { background: var(--green-bg); color: var(--green-text); }
+  .chip.bad { background: var(--red-bg); color: var(--red-text); }
+  ul.issues { margin: 6px 0 0 16px; color: var(--red-text); font-size: 12px; }
+  #frames-strip {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-top: 4px;
+  }
+  #frames-strip img {
+    height: 54px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  #doc-preview {
+    max-width: 320px;
+    max-height: 200px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    display: block;
+    margin-bottom: 12px;
+  }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 16px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Verificacion de Identidad KYC - Cliente de pruebas del microservicio</h1>
+  <div class="config">
+    <label>URL del servicio <input id="cfg-url" value="http://localhost:8000"></label>
+    <label>API Key <input id="cfg-key" type="password" value="control_facial"></label>
+    <button id="btn-health" class="secondary">Probar conexion</button>
+    <span id="health-badge" class="status"></span>
+  </div>
+</header>
+
+<main>
+
+  <section class="card">
+    <h2><span class="num">1</span> Foto del documento de identidad</h2>
+    <input type="file" id="doc-input" accept="image/*">
+    <img id="doc-preview" hidden alt="">
+    <div class="row">
+      <button id="btn-validate-doc" disabled>Validar documento</button>
+      <span id="doc-chip"></span>
+    </div>
+    <div id="doc-detail" style="margin-top:12px"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">2</span> Prueba de vida (liveness)</h2>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas" hidden></canvas>
+    <div class="controls">
+      <button id="btn-cam">Iniciar camara</button>
+      <button id="btn-capture" disabled>Capturar 20 frames</button>
+      <button id="btn-stop-cam" class="secondary" disabled>Detener camara</button>
+    </div>
+    <div id="live-status" class="status"></div>
+    <div id="frames-strip"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">3</span> Verificacion completa KYC</h2>
+    <div class="row">
+      <button id="btn-full" disabled>Ejecutar verificacion completa</button>
+      <span id="full-chip"></span>
+    </div>
+    <div id="full-status" class="status" style="margin-top:10px"></div>
+    <div id="full-result" style="margin-top:12px"></div>
+  </section>
+
+</main>
+
+<footer>
+  Demo de consumo para Facial KYC Service (FastAPI). La camara requiere abrir esta pagina en http://localhost.
+</footer>
+
+<script>
+"use strict";
+
+const state = { docFile: null, frames: [], stream: null };
+
+const $ = (id) => document.getElementById(id);
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function cfg() {
+  return {
+    base: $("cfg-url").value.trim().replace(/\/+$/, ""),
+    key: $("cfg-key").value.trim(),
+  };
+}
+
+async function api(path, options = {}) {
+  const { base, key } = cfg();
+  let resp;
+  try {
+    resp = await fetch(base + path, {
+      ...options,
+      headers: { "X-API-Key": key, ...(options.headers || {}) },
+    });
+  } catch (e) {
+    throw new Error("No se pudo conectar al microservicio en " + base + ". Verifica que este corriendo.");
+  }
+  if (resp.status === 401) throw new Error("API Key invalida o ausente (HTTP 401)");
+  return resp;
+}
+
+function chip(el, ok, okText, badText) {
+  el.innerHTML = "";
+  const span = document.createElement("span");
+  span.className = "chip " + (ok ? "ok" : "bad");
+  span.textContent = ok ? okText : badText;
+  el.appendChild(span);
+}
+
+function kv(label, value) {
+  const div = document.createElement("div");
+  div.className = "kv";
+  const a = document.createElement("span");
+  a.textContent = label;
+  const b = document.createElement("span");
+  b.textContent = value;
+  div.appendChild(a);
+  div.appendChild(b);
+  return div;
+}
+
+function showBanner(el, kind, text) {
+  el.className = "banner " + kind;
+  el.textContent = text;
+}
+
+function refreshFullButton() {
+  $("btn-full").disabled = !(state.docFile && state.frames.length > 0);
+}
+
+async function checkHealth() {
+  const badge = $("health-badge");
+  badge.textContent = "Conectando...";
+  try {
+    const r = await api("/health", { timeoutHint: true });
+    const body = await r.json();
+    badge.textContent = r.ok ? "Conectado: " + body.service : "Servicio respondio con HTTP " + r.status;
+    badge.style.color = r.ok ? "var(--green-text)" : "var(--red-text)";
+  } catch (e) {
+    badge.textContent = e.message;
+    badge.style.color = "var(--red-text)";
+  }
+}
+
+$("btn-health").addEventListener("click", checkHealth);
+
+$("doc-input").addEventListener("change", () => {
+  const f = $("doc-input").files[0];
+  state.docFile = f || null;
+  const preview = $("doc-preview");
+  if (f) {
+    preview.src = URL.createObjectURL(f);
+    preview.hidden = false;
+  } else {
+    preview.hidden = true;
+  }
+  $("btn-validate-doc").disabled = !state.docFile;
+  $("doc-chip").innerHTML = "";
+  $("doc-detail").innerHTML = "";
+  refreshFullButton();
+});
+
+$("btn-validate-doc").addEventListener("click", async () => {
+  const detail = $("doc-detail");
+  detail.innerHTML = "";
+  $("btn-validate-doc").disabled = true;
+  $("btn-validate-doc").textContent = "Validando...";
+  try {
+    const fd = new FormData();
+    fd.append("file", state.docFile, "documento.jpg");
+    const r = await api("/api/v1/document/validate", { method: "POST", body: fd });
+    const body = await r.json();
+    chip($("doc-chip"), body.is_valid, "Documento valido", "Documento invalido");
+    renderDocDetail(body);
+  } catch (e) {
+    showBanner(detail, "bad", e.message);
+  } finally {
+    $("btn-validate-doc").disabled = false;
+    $("btn-validate-doc").textContent = "Validar documento";
+  }
+});
+
+function renderDocDetail(body) {
+  const detail = $("doc-detail");
+  const box = document.createElement("div");
+  box.className = "sub";
+  box.appendChild(kv("Resolucion", body.checks.resolution.width + "x" + body.checks.resolution.height));
+  box.appendChild(kv("Nitidez (Laplaciano)", body.checks.blur_score));
+  box.appendChild(kv("Brillo", body.checks.brightness_score));
+  box.appendChild(kv("Rostro detectado", body.checks.face_detected ? "Si" : "No"));
+  if (body.issues && body.issues.length) {
+    const ul = document.createElement("ul");
+    ul.className = "issues";
+    body.issues.forEach((i) => {
+      const li = document.createElement("li");
+      li.textContent = i;
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+  }
+  detail.appendChild(box);
+}
+
+$("btn-cam").addEventListener("click", async () => {
+  const status = $("live-status");
+  try {
+    state.stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, facingMode: "user" },
+      audio: false,
+    });
+    $("video").srcObject = state.stream;
+    $("btn-capture").disabled = false;
+    $("btn-stop-cam").disabled = false;
+    $("btn-cam").disabled = true;
+    status.textContent = "Camara activa. Colocate frente a ella y parpadea durante la captura.";
+  } catch (e) {
+    if (e.name === "NotAllowedError") status.textContent = "Permiso de camara denegado. Habilita el acceso en el navegador.";
+    else if (e.name === "NotFoundError") status.textContent = "No se encontro ninguna camara conectada.";
+    else status.textContent = "Error al iniciar la camara: " + e.message;
+  }
+});
+
+$("btn-stop-cam").addEventListener("click", () => {
+  if (state.stream) {
+    state.stream.getTracks().forEach((t) => t.stop());
+    state.stream = null;
+  }
+  $("video").srcObject = null;
+  $("btn-cam").disabled = false;
+  $("btn-capture").disabled = true;
+  $("btn-stop-cam").disabled = true;
+  $("live-status").textContent = "Camara detenida.";
+});
+
+$("btn-capture").addEventListener("click", async () => {
+  const btn = $("btn-capture");
+  const video = $("video");
+  const canvas = $("canvas");
+  if (!video.videoWidth) return;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext("2d");
+  const total = 20;
+  state.frames = [];
+  $("frames-strip").innerHTML = "";
+  $("full-result").innerHTML = "";
+  $("full-chip").innerHTML = "";
+  btn.disabled = true;
+  for (let i = 0; i < total; i++) {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const b64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+    state.frames.push(b64);
+    $("live-status").textContent =
+      "Capturando frame " + (i + 1) + "/" + total + " - Mira a la camara y parpadea";
+    await sleep(200);
+  }
+  btn.disabled = false;
+  renderStrip();
+  $("live-status").textContent =
+    "Captura completada: " + state.frames.length + " frames listos para enviar.";
+  refreshFullButton();
+});
+
+function renderStrip() {
+  const strip = $("frames-strip");
+  strip.innerHTML = "";
+  state.frames.forEach((b64) => {
+    const img = document.createElement("img");
+    img.src = "data:image/jpeg;base64," + b64;
+    strip.appendChild(img);
+  });
+}
+
+$("btn-full").addEventListener("click", async () => {
+  const btn = $("btn-full");
+  const resultBox = $("full-result");
+  const status = $("full-status");
+  btn.disabled = true;
+  resultBox.innerHTML = "";
+  $("full-chip").innerHTML = "";
+  status.textContent = "Enviando documento y " + state.frames.length + " frames al microservicio (la primera peticion puede demorar mientras carga los modelos)...";
+  try {
+    const fd = new FormData();
+    fd.append("document_image", state.docFile, "documento.jpg");
+    fd.append("liveness_frames", JSON.stringify(state.frames));
+    const r = await api("/api/v1/identity/verify-full", { method: "POST", body: fd });
+    const body = await r.json();
+    renderFullResult(body);
+  } catch (e) {
+    showBanner(resultBox, "bad", e.message);
+  } finally {
+    btn.disabled = false;
+    status.textContent = "";
+    refreshFullButton();
+  }
+});
+
+function renderFullResult(body) {
+  chip($("full-chip"), body.overall_result, "KYC aprobado", "KYC rechazado");
+  const resultBox = $("full-result");
+  resultBox.innerHTML = "";
+
+  const banner = document.createElement("div");
+  banner.className = "banner " + (body.overall_result ? "ok" : "bad");
+  banner.textContent = body.overall_reason;
+  resultBox.appendChild(banner);
+
+  const grid = document.createElement("div");
+  grid.className = "grid";
+
+  const doc = subCard("Documento", body.document_validation.is_valid,
+    body.document_validation.is_valid ? "Valido" : "Invalido",
+    [
+      kv("Rostro detectado", String(body.document_validation.checks.face_detected)),
+      kv("Resolucion", body.document_validation.checks.resolution.width + "x" + body.document_validation.checks.resolution.height),
+    ],
+    body.document_validation.issues
+  );
+
+  const liv = subCard("Liveness", body.liveness.is_live,
+    body.liveness.is_live ? "Persona real" : "No superado",
+    [
+      kv("Parpadeos detectados", String(body.liveness.blinks_detected)),
+      kv("Frames analizados", String(body.liveness.frames_analyzed)),
+      kv("Motivo", body.liveness.reason),
+    ]
+  );
+
+  const cons = body.identity_consistency.checked
+    ? subCard("Consistencia de identidad", body.identity_consistency.is_consistent,
+        body.identity_consistency.is_consistent ? "Misma persona" : "Persona distinta",
+        [kv("Distancia", String(body.identity_consistency.distance))]
+      )
+    : subCard("Consistencia de identidad", true, "No evaluada", []);
+
+  const fm = body.face_match;
+  const match = subCard("Match biometrico", fm.is_match,
+    fm.is_match ? "Coincide con el documento" : "No coincide",
+    [
+      kv("Distancia", fm.distance.toFixed(4)),
+      kv("Umbral", String(fm.threshold)),
+      kv("Confianza", Math.round(fm.confidence * 100) + "%"),
+      kv("Modelo", fm.model),
+    ]
+  );
+
+  [doc, liv, cons, match].forEach((el) => grid.appendChild(el));
+  resultBox.appendChild(grid);
+}
+
+function subCard(title, ok, okLabel, rows, issues) {
+  const box = document.createElement("div");
+  box.className = "sub";
+  const h = document.createElement("h3");
+  h.textContent = title;
+  const headRow = document.createElement("div");
+  headRow.className = "row";
+  headRow.appendChild(h);
+  const c = document.createElement("span");
+  c.className = "chip " + (ok ? "ok" : "bad");
+  c.textContent = okLabel;
+  headRow.appendChild(c);
+  box.appendChild(headRow);
+  rows.forEach((r) => box.appendChild(r));
+  if (issues && issues.length) {
+    const ul = document.createElement("ul");
+    ul.className = "issues";
+    issues.forEach((i) => {
+      const li = document.createElement("li");
+      li.textContent = i;
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+  }
+  return box;
+}
+
+checkHealth();
+</script>
+</body>
+</html>
