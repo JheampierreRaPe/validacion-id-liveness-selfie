@@ -2,6 +2,7 @@ import json
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
+from app.core.challenges import challenge_store
 from app.core.security import verify_api_key
 from app.schemas.models import FullVerificationResponse, IdentityVerifyResponse
 from app.services.document_service import document_service
@@ -39,10 +40,12 @@ async def verify_full(
     liveness_frames: str = Form(
         ...,
         description=(
-            'JSON array de strings base64 con los frames de liveness, ej: ["<b64>", "<b64>", ...]. '
-            "La selfie para el match biométrico se extrae automáticamente del mejor frame de esta secuencia: "
-            "no se recibe una selfie por separado, para garantizar que la persona que hace el liveness "
-            "es la misma que se compara contra el documento."
+            'JSON con los frames de liveness. Dos formatos soportados:\n'
+            '- Clásico (parpadeo): array de strings base64, ej: ["<b64>", ...].\n'
+            '- Guiado (challenge-response): objeto {"token": "<token>", "segments": {"arriba": [...b64], ...}} '
+            "con las tareas validadas de a una vía /liveness/evaluate. La selfie del match biométrico se "
+            "extrae del mejor frame de toda la secuencia, garantizando que quien hizo el liveness es quien "
+            "se compara contra el documento."
         ),
     ),
 ):
@@ -51,15 +54,66 @@ async def verify_full(
     doc_validation = document_service.validate(doc_img)
 
     try:
-        frames_b64 = json.loads(liveness_frames)
+        parsed = json.loads(liveness_frames)
     except json.JSONDecodeError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="liveness_frames debe ser un array JSON válido de strings base64",
+            detail="liveness_frames debe ser un JSON válido (array de base64 o {token, segments})",
         )
-    frames = [decode_base64_image(f) for f in frames_b64]
 
-    liveness_bundle = liveness_service.analyze_and_extract_selfie(frames)
+    # -------- Retrocompatibilidad: flujo clásico (solo parpadeo) --------
+    if isinstance(parsed, list):
+        frames = [decode_base64_image(f) for f in parsed]
+        liveness_bundle = liveness_service.analyze_and_extract_selfie(frames)
+
+    # -------- Flujo guiado por pasos (challenge-response) --------
+    elif isinstance(parsed, dict):
+        token = parsed.get("token")
+        segments_raw = parsed.get("segments")
+        if challenge_store.get(token) is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token de desafío inválido o expirado. Reinicia el liveness desde /liveness/challenge",
+            )
+        if not challenge_store.is_completed(token):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "El desafío aún no está completo: cada tarea debe validarse con /liveness/evaluate "
+                    "antes de enviar /identity/verify-full"
+                ),
+            )
+        if not isinstance(segments_raw, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El campo 'segments' debe ser un objeto {paso: [frames base64]}",
+            )
+
+        steps = challenge_store.steps_for(token)
+        missing = [
+            s
+            for s in steps
+            if s not in segments_raw
+            or not isinstance(segments_raw[s], list)
+            or len(segments_raw[s]) == 0
+        ]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Faltan segmentos de frames para: {', '.join(missing)}",
+            )
+
+        segments = {
+            s: [decode_base64_image(b64) for b64 in segments_raw[s]] for s in steps
+        }
+        liveness_bundle = liveness_service.analyze_guided_sequence(segments, steps)
+        challenge_store.delete(token)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="liveness_frames debe ser un array JSON o un objeto {token, segments}",
+        )
+
     liveness_result = liveness_bundle["liveness"]
     best_frame = liveness_bundle["best_frame"]
     consistency = liveness_bundle["identity_consistency"]

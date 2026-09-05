@@ -141,6 +141,7 @@
   }
   .chip.ok { background: var(--green-bg); color: var(--green-text); }
   .chip.bad { background: var(--red-bg); color: var(--red-text); }
+  .chip.current { background: var(--amber-bg); color: var(--amber-text); }
   ul.issues { margin: 6px 0 0 16px; color: var(--red-text); font-size: 12px; }
   #frames-strip {
     display: flex;
@@ -196,14 +197,17 @@
   </section>
 
   <section class="card">
-    <h2><span class="num">2</span> Prueba de vida (liveness)</h2>
+    <h2><span class="num">2</span> Prueba de vida (liveness guiado)</h2>
     <video id="video" autoplay playsinline muted></video>
     <canvas id="canvas" hidden></canvas>
     <div class="controls">
       <button id="btn-cam">Iniciar camara</button>
-      <button id="btn-capture" disabled>Capturar 20 frames</button>
+      <button id="btn-challenge" disabled>Comenzar desafio</button>
+      <button id="btn-capture-step" disabled>Capturar y validar tarea</button>
       <button id="btn-stop-cam" class="secondary" disabled>Detener camara</button>
     </div>
+    <div id="step-instruction" class="banner info" hidden></div>
+    <div id="steps-progress" class="row" hidden></div>
     <div id="live-status" class="status"></div>
     <div id="frames-strip"></div>
   </section>
@@ -221,15 +225,32 @@
 </main>
 
 <footer>
-  Demo de consumo para Facial KYC Service (FastAPI). La camara requiere abrir esta pagina en http://localhost.
+  Demo de consumo para Facial KYC Service (FastAPI). La camara (getUserMedia) requiere contexto seguro: abre esta pagina en http://localhost, o habilita tu IP local como origen seguro en chrome://flags/#unsafely-treat-insecure-origin-as-secure (ver RED_LOCAL.md).
 </footer>
 
 <script>
 "use strict";
 
-const state = { docFile: null, frames: [], stream: null };
+const state = { docFile: null, frames: [], stream: null, challenge: null, finalSegments: {}, stepIdx: 0 };
+
+const STEP_LABELS = {
+  arriba: "Mueve la cabeza hacia ARRIBA",
+  abajo: "Mueve la cabeza hacia ABAJO",
+  izquierda: "Gira la cabeza hacia tu izquierda (IZQUIERDA)",
+  derecha: "Gira la cabeza hacia tu derecha (DERECHA)",
+  parpadeo: "PARPADEA varias veces",
+};
 
 const $ = (id) => document.getElementById(id);
+
+// Si la demo se abre desde otro equipo de la red local, apuntar al host que sirve esta pagina
+// en lugar de localhost (que apuntaria al dispositivo del cliente).
+(function () {
+  const host = window.location.hostname;
+  if (host && host !== "localhost" && host !== "127.0.0.1") {
+    $("cfg-url").value = "http://" + host + ":8000";
+  }
+})();
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -283,7 +304,11 @@ function showBanner(el, kind, text) {
 }
 
 function refreshFullButton() {
-  $("btn-full").disabled = !(state.docFile && state.frames.length > 0);
+  const done =
+    state.docFile &&
+    state.challenge &&
+    state.stepIdx >= state.challenge.steps.length;
+  $("btn-full").disabled = !done;
 }
 
 async function checkHealth() {
@@ -367,10 +392,10 @@ $("btn-cam").addEventListener("click", async () => {
       audio: false,
     });
     $("video").srcObject = state.stream;
-    $("btn-capture").disabled = false;
+    $("btn-challenge").disabled = false;
     $("btn-stop-cam").disabled = false;
     $("btn-cam").disabled = true;
-    status.textContent = "Camara activa. Colocate frente a ella y parpadea durante la captura.";
+    status.textContent = "Camara activa. Presiona 'Comenzar desafio' para recibir la secuencia de tareas.";
   } catch (e) {
     if (e.name === "NotAllowedError") status.textContent = "Permiso de camara denegado. Habilita el acceso en el navegador.";
     else if (e.name === "NotFoundError") status.textContent = "No se encontro ninguna camara conectada.";
@@ -385,44 +410,136 @@ $("btn-stop-cam").addEventListener("click", () => {
   }
   $("video").srcObject = null;
   $("btn-cam").disabled = false;
-  $("btn-capture").disabled = true;
+  $("btn-challenge").disabled = true;
+  $("btn-capture-step").disabled = true;
   $("btn-stop-cam").disabled = true;
+  $("step-instruction").hidden = true;
   $("live-status").textContent = "Camara detenida.";
 });
 
-$("btn-capture").addEventListener("click", async () => {
-  const btn = $("btn-capture");
+$("btn-challenge").addEventListener("click", async () => {
+  const status = $("live-status");
+  if (!state.stream) {
+    status.textContent = "Inicia la camara primero.";
+    return;
+  }
+  try {
+    const r = await api("/api/v1/liveness/challenge", { method: "POST" });
+    const ch = await r.json();
+    state.challenge = ch;
+    state.finalSegments = {};
+    state.stepIdx = 0;
+    $("btn-challenge").disabled = true;
+    $("btn-capture-step").disabled = false;
+    renderStepsProgress();
+    showStepInstruction();
+    status.textContent = "Desafio creado (" + ch.steps.length + " tareas).";
+  } catch (e) {
+    showBanner($("step-instruction"), "bad", e.message);
+  }
+});
+
+function renderStepsProgress() {
+  const box = $("steps-progress");
+  box.hidden = true;
+  box.innerHTML = "";
+  if (!state.challenge) return;
+  box.hidden = false;
+  const ORDER_LABEL = { arriba: "arriba", abajo: "abajo", izquierda: "izquierda", derecha: "derecha", parpadeo: "parpadeo" };
+  state.challenge.steps.forEach((s, i) => {
+    const chip = document.createElement("span");
+    if (i < state.stepIdx) {
+      chip.className = "chip ok";
+      chip.textContent = (ORDER_LABEL[s] || s) + " (hecho)";
+    } else if (i === state.stepIdx) {
+      chip.className = "chip current";
+      chip.textContent = (ORDER_LABEL[s] || s) + " (actual)";
+    } else {
+      chip.className = "chip";
+      chip.textContent = (ORDER_LABEL[s] || s) + " (pendiente)";
+    }
+    box.appendChild(chip);
+  });
+}
+
+function showStepInstruction() {
+  const el = $("step-instruction");
+  if (!state.challenge || state.stepIdx >= state.challenge.steps.length) {
+    el.hidden = true;
+    return;
+  }
+  const step = state.challenge.steps[state.stepIdx];
+  el.hidden = false;
+  el.className = "banner info";
+  el.textContent =
+    "Paso " + (state.stepIdx + 1) + "/" + state.challenge.steps.length + " - " +
+    (STEP_LABELS[step] || step) + "  (presiona 'Capturar y validar tarea').";
+}
+
+async function captureBurst(total) {
   const video = $("video");
   const canvas = $("canvas");
-  if (!video.videoWidth) return;
+  const status = $("live-status");
+  if (!video.videoWidth) return [];
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   const ctx = canvas.getContext("2d");
-  const total = 20;
-  state.frames = [];
-  $("frames-strip").innerHTML = "";
-  $("full-result").innerHTML = "";
-  $("full-chip").innerHTML = "";
-  btn.disabled = true;
+  const frames = [];
   for (let i = 0; i < total; i++) {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const b64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
-    state.frames.push(b64);
-    $("live-status").textContent =
-      "Capturando frame " + (i + 1) + "/" + total + " - Mira a la camara y parpadea";
-    await sleep(200);
+    frames.push(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]);
+    status.textContent =
+      "Capturando frame " + (i + 1) + "/" + total + " - realiza el movimiento hasta el final de la captura";
+    await sleep(150);
   }
-  btn.disabled = false;
-  renderStrip();
-  $("live-status").textContent =
-    "Captura completada: " + state.frames.length + " frames listos para enviar.";
-  refreshFullButton();
+  renderStrip(frames);
+  return frames;
+}
+
+$("btn-capture-step").addEventListener("click", async () => {
+  const btn = $("btn-capture-step");
+  const status = $("live-status");
+  if (!state.challenge || state.stepIdx >= state.challenge.steps.length) return;
+  const step = state.challenge.steps[state.stepIdx];
+  btn.disabled = true;
+  try {
+    const frames = await captureBurst(10);
+    status.textContent = "Enviando tarea '" + step + "' al servidor para validacion...";
+    const r = await api("/api/v1/liveness/evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: state.challenge.token, step: step, frames_base64: frames }),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || ("HTTP " + r.status));
+    if (body.passed) {
+      state.finalSegments[step] = frames;
+      state.stepIdx += 1;
+      renderStepsProgress();
+      if (state.stepIdx < state.challenge.steps.length) {
+        showStepInstruction();
+        status.textContent = "Tarea '" + step + "' validada por el servidor. Siguiente paso.";
+      } else {
+        showStepInstruction();
+        status.textContent = "Desafio completado: todas las tareas fueron validadas. Ahora puedes ejecutar la verificacion completa.";
+        btn.disabled = true;
+      }
+    } else {
+      showStepInstruction();
+      status.textContent = "El servidor NO valido la tarea '" + step + "' (" + (body.reason || "") + "). Intentalo de nuevo.";
+    }
+  } catch (e) {
+    showBanner($("step-instruction"), "bad", e.message);
+  } finally {
+    btn.disabled = Boolean(state.challenge && state.stepIdx >= state.challenge.steps.length);
+    refreshFullButton();
+  }
 });
 
-function renderStrip() {
+function renderStrip(frames) {
   const strip = $("frames-strip");
   strip.innerHTML = "";
-  state.frames.forEach((b64) => {
+  frames.forEach((b64) => {
     const img = document.createElement("img");
     img.src = "data:image/jpeg;base64," + b64;
     strip.appendChild(img);
@@ -436,11 +553,14 @@ $("btn-full").addEventListener("click", async () => {
   btn.disabled = true;
   resultBox.innerHTML = "";
   $("full-chip").innerHTML = "";
-  status.textContent = "Enviando documento y " + state.frames.length + " frames al microservicio (la primera peticion puede demorar mientras carga los modelos)...";
+  status.textContent = "Enviando documento y " + state.challenge.steps.length + " tareas de liveness al microservicio (la primera peticion puede demorar mientras carga los modelos)...";
   try {
     const fd = new FormData();
     fd.append("document_image", state.docFile, "documento.jpg");
-    fd.append("liveness_frames", JSON.stringify(state.frames));
+    fd.append(
+      "liveness_frames",
+      JSON.stringify({ token: state.challenge.token, segments: state.finalSegments })
+    );
     const r = await api("/api/v1/identity/verify-full", { method: "POST", body: fd });
     const body = await r.json();
     renderFullResult(body);
@@ -478,6 +598,14 @@ function renderFullResult(body) {
   const liv = subCard("Liveness", body.liveness.is_live,
     body.liveness.is_live ? "Persona real" : "No superado",
     [
+      ...(body.liveness.steps_total
+        ? body.liveness.steps_total.map((s) =>
+            kv(
+              "Tarea " + s,
+              (body.liveness.steps_verified || []).includes(s) ? "OK" : "Falló"
+            )
+          )
+        : []),
       kv("Parpadeos detectados", String(body.liveness.blinks_detected)),
       kv("Frames analizados", String(body.liveness.frames_analyzed)),
       kv("Motivo", body.liveness.reason),

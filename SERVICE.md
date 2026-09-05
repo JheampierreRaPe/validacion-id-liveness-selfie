@@ -141,3 +141,109 @@ Configurables a través de `.env` (basado en `.env.example`):
 - **Integridad de Datos:** Los frames enviados para liveness deben estar codificados correctamente en formato base64 y pertenecer a una secuencia de video continua de la misma sesión de captura del usuario.
 - **Manejo de Excepciones:** Los fallos en la decodificación de imágenes o JSONs malformados devuelven errores HTTP 400 descriptivos para facilitar el debugging desde el cliente móvil.
 - **Evolución del Servicio:** No se deben introducir librerías de IA pesadas adicionales sin verificar el impacto en el tamaño de la imagen Docker y los tiempos de arranque en frío.
+
+---
+
+## 11. Mejora implementada: Liveness guiado por pasos (challenge-response + head pose)
+
+> Sección adicionada (no reemplaza las anteriores). Documenta el cambio que convierte el
+> liveness de "solo parpadeo" en un flujo **guiado por tareas** con validación servidor a
+> servidor por cada paso, sin trabajo de IA en el dispositivo (adecuado para app bancaria Flutter).
+
+### 11.1 Propósito del cambio
+El flujo previo pedía al usuario solo parpadear sobre una ráfaga. El nuevo flujo:
+- Solicita seguir una **secuencia** de pasos: cabeza arriba, abajo, izquierda, derecha y parpadeo.
+- La secuencia es generada por el **backend en orden aleatorio** (token anti-replay) y NO es conocida
+  antes de iniciar la captura, dificultando ataques con video pre-grabado.
+- Cada tarea se desbloquea **solo cuando el servidor la valida** (`/liveness/evaluate`, solo MediaPipe).
+- El trabajo pesado (DeepFace: consistencia de identidad + match biométrico con el documento) corre
+  **una sola vez** al final en `/identity/verify-full`.
+
+### 11.2 Nuevos componentes
+- `app/core/challenges.py`: `ChallengeStore` en memoria (token → pasos → progreso) con TTL y bloqueo
+  por hilo. Stateless respecto a base de datos.
+- `app/services/liveness_service.py`: nuevos métodos:
+  - `evaluate_segment(step, frames)` — evalúa una task (blink por EAR o head pose por yaw/pitch).
+  - `analyze_guided_sequence(steps_frames, steps)` — resumen por pasos + extracción de selfie +
+    consistencia de identidad para `verify-full`.
+  - `_estimate_head_pose(frame)` — heurística de pitch/yaw con landmarks 2D de FaceMesh
+    (nariz vs. centro del rostro), sin `solvePnP`.
+
+### 11.3 Nuevos endpoints
+
+#### `POST /api/v1/liveness/challenge`
+- **Descripción:** Crea un desafío con el orden aleatorio de tareas.
+- **Request:** vacío (requiere `X-API-Key`).
+- **Response 200:**
+```json
+{
+  "token": "ABC...",
+  "steps": ["arriba", "izquierda", "parpadeo", "abajo", "derecha"],
+  "expires_in": 180
+}
+```
+
+#### `POST /api/v1/liveness/evaluate`
+- **Descripción:** Valida UNA tarea del desafío (solo MediaPipe, respuesta <1s).
+  Exige que la tarea enviada sea la pendiente (orden del challenge). Si `passed:true`,
+  avanza el desafío a la siguiente task.
+- **Request:**
+```json
+{
+  "token": "ABC...",
+  "step": "arriba",
+  "frames_base64": ["<b64>", "..."]
+}
+```
+- **Response 200:**
+```json
+{
+  "step": "arriba",
+  "passed": true,
+  "reason": "Movimiento detectado",
+  "frames_analyzed": 10,
+  "details": {"pitch_delta": 0.081, "yaw_delta": 0.012, "frames_analyzed": 10}
+}
+```
+- **Errores:** `400` si token inválido/expirado, desafío ya completado o paso fuera de orden.
+
+#### `POST /api/v1/identity/verify-full` (formato ampliado)
+- **Descripción:** Flujo KYC completo. Ahora acepta dos formatos en `liveness_frames`:
+  - **Retrocompatible (clásico):** array plano de strings base64 → se procesa con el flujo de solo parpadeo.
+  - **Nuevo (guiado):**
+```json
+{
+  "token": "ABC...",
+  "segments": {
+    "arriba": ["<b64>", "..."],
+    "abajo": ["<b64>", "..."],
+    "parpadeo": ["<b64>", "..."]
+  }
+}
+```
+  Requiere que el desafío haya sido completado (todas las tasks validadas vía `/evaluate`).
+- **Comportamiento nuevo:** liveness resultado incluye `steps_total`, `steps_verified` y
+  `step_results` adicionalmente a los campos clásicos; la selfie del match se extrae del mejor
+  frame global; se valida consistencia de identidad entre el primer rostro y el mejor frame.
+
+### 11.4 Nuevas variables de entorno (opcionales, con defaults)
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `LIVENESS_CHALLENGE_STEPS` | `arriba,abajo,izquierda,derecha,parpadeo` | Pool de pasos disponibles |
+| `CHALLENGE_MAX_STEPS` | `5` | Máximo de tareas por desafío |
+| `CHALLENGE_TOKEN_TTL_SECONDS` | `180` | Validez del token del desafío |
+| `MIN_FRAMES_PER_SEGMENT` | `5` | Frames mínimos por tarea |
+| `HEAD_POSE_BASELINE_FRAMES` | `3` | Frames iniciales usados como línea base de pose |
+| `HEAD_POSE_MOVE_THRESHOLD` | `0.06` | Desviación normalizada mínima para confirmar el movimiento |
+
+### 11.5 Notas
+- **Estado en memoria:** el progreso del desafío se guarda en RAM del proceso. Al reiniciar el
+  servicio, los tokens activos se invalidan; el cliente debe solicitar un desafío nuevo.
+- **Anti-replay:** al ser la secuencia aleatoria y generada en el servidor, la clonación de frames
+  estáticos no supera la verificación de movimiento por task.
+- **Demo web:** `web-demo/index.html` implementa el flujo guiado completo (challenge → evaluate
+  por tarea → verify-full) y sirve de referencia para el cliente Flutter (ver `INTEGRACION_FLUTTER.md`).
+- **Dirección de movimiento:** para el usuario, "izquierda/derecha" se refiere a SU propia
+  izquierda/derecha (espejo del punto de vista de la cámara). Los signos de yaw/pitch están
+  mapeados en `evaluate_segment` para coincidir con esa interpretación.

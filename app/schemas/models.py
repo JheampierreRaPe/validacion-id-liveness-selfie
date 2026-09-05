@@ -30,6 +30,37 @@ class LivenessResponse(BaseModel):
     blinks_detected: int
     frames_analyzed: int
     ear_series: List[Optional[float]]
+    # Flujo guiado por pasos (opcional; None en el flujo clásico de solo parpadeo)
+    steps_verified: Optional[List[str]] = None
+    steps_total: Optional[List[str]] = None
+    step_results: Optional[dict] = None
+
+
+# ---------------------- Liveness guiado (challenge-response) ----------------------
+class ChallengeResponse(BaseModel):
+    token: str
+    steps: List[str] = Field(
+        ..., description="Orden aleatorio de tareas que el usuario debe realizar"
+    )
+    expires_in: int = Field(..., description="Validez del token en segundos")
+
+
+class EvaluateRequest(BaseModel):
+    token: str = Field(..., description="Token del desafío obtenido en /liveness/challenge")
+    step: str = Field(
+        ..., description="Paso que el usuario acaba de realizar (arriba/abajo/izquierda/derecha/parpadeo)"
+    )
+    frames_base64: List[str] = Field(
+        ..., description="Segmento de frames (base64) capturados durante la ejecución de la task"
+    )
+
+
+class EvaluateResponse(BaseModel):
+    step: str
+    passed: bool
+    reason: str
+    frames_analyzed: int
+    details: Optional[dict] = None
 
 
 # ---------------------- Identidad (match biométrico) ----------------------
